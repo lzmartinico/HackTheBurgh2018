@@ -161,7 +161,6 @@ void read_accel() {
 
 void start_accellerometer() {
     accel.setActive(true);
-    accel.setSampleRate(2000);
 	while (true) {
 		read_accel();
 		wait_ms(1000);
