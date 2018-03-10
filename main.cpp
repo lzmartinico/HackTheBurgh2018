@@ -15,6 +15,7 @@
  */
 
 #include <string>
+#include <stdlib.h> 
 #include "mbed.h"
 #include "BLEDevice.h"
 #include "TCPSocket.h"
@@ -48,6 +49,13 @@ C12832  lcd(PE_14, PE_12, PD_12, PD_11, PE_9);
 MMA7660 accel(PF_0, PF_1);
 InterruptIn button(PF_2);
 
+int screen_width = 20; //lcd.columns();
+int oldInd = screen_width*1.5;
+int stateX = 0;
+int stateY = 0;
+char message[66] = ""; 
+float oldX, oldY, oldZ;
+
 void lcd_print(const char* message)
 {
     lcd.cls();
@@ -55,93 +63,25 @@ void lcd_print(const char* message)
     lcd.printf(message);
 }
 
-const char *sec2str(nsapi_security_t sec)
-{
-    switch (sec) {
-        case NSAPI_SECURITY_NONE:
-            return "None";
-        case NSAPI_SECURITY_WEP:
-            return "WEP";
-        case NSAPI_SECURITY_WPA:
-            return "WPA";
-        case NSAPI_SECURITY_WPA2:
-            return "WPA2";
-        case NSAPI_SECURITY_WPA_WPA2:
-            return "WPA/WPA2";
-        case NSAPI_SECURITY_UNKNOWN:
-        default:
-            return "Unknown";
-    }
-}
 
-int scan_demo(WiFiInterface *wifi)
-{
-    WiFiAccessPoint *ap;
-
-    pc.printf("Scan:\n");
-
-    int count = wifi->scan(NULL,0);
-
-    /* Limit number of network arbitrary to 15 */
-    count = count < 15 ? count : 15;
-
-    ap = new WiFiAccessPoint[count];
-    count = wifi->scan(ap, count);
-    for (int i = 0; i < count; i++) {
-        pc.printf("Network: %s secured: %s BSSID: %hhX:%hhX:%hhX:%hhx:%hhx:%hhx RSSI: %hhd Ch: %hhd\n", ap[i].get_ssid(),
-                   sec2str(ap[i].get_security()), ap[i].get_bssid()[0], ap[i].get_bssid()[1], ap[i].get_bssid()[2],
-                   ap[i].get_bssid()[3], ap[i].get_bssid()[4], ap[i].get_bssid()[5], ap[i].get_rssi(), ap[i].get_channel());
-    }
-    pc.printf("%d networks available.\n", count);
-
-    delete[] ap;
-    return count;
-}
-
-void http_demo(NetworkInterface *net)
-{
-    TCPSocket socket;
-    nsapi_error_t response;
-
-    printf("Sending HTTP request to www.arm.com...\n");
-
-    // Open a socket on the network interface, and create a TCP connection to www.arm.com
-    socket.open(net);
-    response = socket.connect("www.arm.com", 80);
-    if(0 != response) {
-        printf("Error connecting: %d\n", response);
-        socket.close();
-        return;
-    }
-
-    // Send a simple http request
-    char sbuffer[] = "GET / HTTP/1.1\r\nHost: www.arm.com\r\n\r\n";
-    nsapi_size_t size = strlen(sbuffer);
-    response = 0;
-    while(size) {
-        response = socket.send(sbuffer+response, size);
-        if (response < 0) {
-            printf("Error sending data: %d\n", response);
-            socket.close();
+void updateEgg(int x, int y) {
+// Override hte 
+    pc.printf("updateEgg called with %d and %d", x, y);
+       int xOffset = 0;
+       if (stateX > -0.5 && stateX <= 0.5) {
+           xOffset = screen_width;
+       } else if (stateX > 0.5 && stateX <= 1) {
+            xOffset = 2*screen_width;
+       } else {
+            lcd_print("Failure");
             return;
-        } else {
-            size -= response;
-            // Check if entire message was sent or not
-            printf("sent %d [%.*s]\n", response, strstr(sbuffer, "\r\n")-sbuffer, sbuffer);
-        }
-    }
-
-    // Recieve a simple http response and print out the response line
-    char rbuffer[64];
-    response = socket.recv(rbuffer, sizeof rbuffer);
-    if (response < 0) {
-        printf("Error receiving data: %d\n", response);
-    } else {
-        printf("recv %d [%.*s]\n", response, strstr(rbuffer, "\r\n")-rbuffer, rbuffer);
-    }
-
-    // Close the socket to return its memory and bring down the network interface
-    socket.close();
+       }
+       pc.printf("xOffset is %d", xOffset);
+       message[oldInd] = '_';
+       message[oldInd+1] = '_';
+       message[xOffset+screen_width/2+stateY] = '('; 
+       message[xOffset+screen_width/2+stateY+1] = ')'; 
+       oldInd = xOffset+screen_width/2+stateY;
 }
 
 void read_accel() {
@@ -152,10 +92,22 @@ void read_accel() {
         float y = accel.y();
         float z = accel.z();
         char val[32];
-        sprintf(val, "x=%.2f y=%.2f z=%.2f\n", x, y, z);
-        //TODO: replace lcd_orint with egg editing function
-        lcd_print(val);
+        sprintf(val, "x=%.2f y=%.2f z=%.2f\r\n", x, y, z);
+        float thresh = 0.05;
+        if (oldX && abs(oldX-x >= thresh)) {
+            if (x - oldX > 0) stateX -= 0.1;
+            else stateX += 0.1;
+        }
+        if (oldY && abs(oldY-y >= thresh)) {
+            if (y - oldY > 0) stateY -= 0.1;
+            else stateY += 0.1;
+        }
+        updateEgg(stateX, stateY);
+        //lcd_print(val);
         pc.printf(val);
+        oldX = x;
+        oldY = y;
+        oldZ = z;
     }
 }
 
@@ -170,10 +122,8 @@ void start_accellerometer() {
 int main()
 {
     int count = 0;
-    int n = 20; //lcd.columns();
-    std::string half(n+n/2-1, '_'); 
+    std::string half(screen_width+screen_width/2-1, '_'); 
     const char *half_c = half.c_str();
-    char message[66] = ""; 
     std::strcat(message, half_c);
     std::strcat(message, "()");
     std::strcat(message, half_c);
