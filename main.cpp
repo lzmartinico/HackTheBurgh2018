@@ -15,6 +15,7 @@
  */
 
 #include <string>
+#include <cmath>
 #include <stdlib.h> 
 #include "mbed.h"
 #include "BLEDevice.h"
@@ -54,7 +55,7 @@ int oldInd = screen_width*1.5;
 int stateX = 0;
 int stateY = 0;
 char message[66] = ""; 
-float oldX, oldY, oldZ;
+float oldX, oldY, oldZ = 0; 
 
 void lcd_print(const char* message)
 {
@@ -64,57 +65,66 @@ void lcd_print(const char* message)
 }
 
 
-void updateEgg(int x, int y) {
-// Override hte 
-    pc.printf("updateEgg called with %d and %d", x, y);
+int updateEgg(int x, int y) {
+      // take values in range -1 to 1; lower or higher values result in egg falling
+       pc.printf("updateEgg called with %d and %d; ", x, y);
        int xOffset = 0;
-       if (stateX > -0.5 && stateX <= 0.5) {
+       if (stateX > -5 && stateX <= 5) {
            xOffset = screen_width;
-       } else if (stateX > 0.5 && stateX <= 1) {
+       } else if (stateX > 5 && stateX <= 10) {
             xOffset = 2*screen_width;
-       } else {
+       } else if (stateX <= -10 || stateX >= 10 || stateY <= -10 || stateY >= 10) { 
             lcd_print("Failure");
-            return;
+            return -1;
        }
-       pc.printf("xOffset is %d", xOffset);
+       pc.printf("xOffset is %d\r\n", xOffset);
        message[oldInd] = '_';
        message[oldInd+1] = '_';
        message[xOffset+screen_width/2+stateY] = '('; 
        message[xOffset+screen_width/2+stateY+1] = ')'; 
        oldInd = xOffset+screen_width/2+stateY;
+       lcd_print(message);
+       return 0;
 }
 
-void read_accel() {
+int read_accel() {
     if (!accel.testConnection()) {
         lcd_print("Error");
+        return -1;
     } else {
         float x = accel.x();
         float y = accel.y();
         float z = accel.z();
         char val[32];
         sprintf(val, "x=%.2f y=%.2f z=%.2f\r\n", x, y, z);
-        float thresh = 0.05;
-        if (oldX && abs(oldX-x >= thresh)) {
-            if (x - oldX > 0) stateX -= 0.1;
+        float thresh = 0.1;
+        if (x > 0) stateX--; else stateX++;
+        if (y > 0) stateY--; else stateY++;
+        if (updateEgg(stateX, stateY) == -1) return -1;
+
+        /*if (x >= thresh) {
+            if (x >  0) stateX -= 0.1;
             else stateX += 0.1;
+            pc.printf("stateX changed to %d; ", stateX);
         }
-        if (oldY && abs(oldY-y >= thresh)) {
-            if (y - oldY > 0) stateY -= 0.1;
+        if (y >= thresh) {
+            if (y > 0) stateY -= 0.1;
             else stateY += 0.1;
-        }
+            pc.printf("stateY changed to %d; ", stateY);
         updateEgg(stateX, stateY);
+        }*/
         //lcd_print(val);
         pc.printf(val);
         oldX = x;
         oldY = y;
         oldZ = z;
     }
+    return 0;
 }
 
 void start_accellerometer() {
     accel.setActive(true);
-	while (true) {
-		read_accel();
+	while (!read_accel()) {
 		wait_ms(1000);
 	}
 }
